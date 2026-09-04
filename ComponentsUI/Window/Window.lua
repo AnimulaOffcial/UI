@@ -626,16 +626,19 @@ function Window:Destroy()
 end
 
 function Window:Notify(cfg: any)
-    local N: any = require(script.Parent.Parent.Notification.Notification)
+    local ok, mod = pcall(function() return __require("Notification") end)
+    local N: any = (ok and mod) or require(script.Parent.Parent.Notification.Notification)
     return N.Notify(cfg)
 end
 function Window:MakeNotification(cfg: any) return self:Notify(cfg) end
 function Window:Dialog(cfg: any)
-    local N: any = require(script.Parent.Parent.Notification.Notification)
+    local ok, mod = pcall(function() return __require("Notification") end)
+    local N: any = (ok and mod) or require(script.Parent.Parent.Notification.Notification)
     return N.Dialog(cfg, self._main)
 end
 function Window:Popup(cfg: any)
-    local N: any = require(script.Parent.Parent.Notification.Notification)
+    local ok, mod = pcall(function() return __require("Notification") end)
+    local N: any = (ok and mod) or require(script.Parent.Parent.Notification.Notification)
     return N.Popup(cfg)
 end
 
