@@ -1,14 +1,18 @@
 --!strict
--- window.lua - bikin window animula
--- ini file paling penting, jadi gw komen agak banyak biar gak lupa
--- update 04/09: nambahin wave + glass + glow + particle biar gak boring
--- sumpah capek bgt ngatur gradient nya wkwk tapi hasilnya cakep parah
+-- window.lua - orchestrator window animula (sekarang modular)
+-- dipecah jadi Header/TitleBar, Sidebar/Sidebar, Content/Content, Effects/Wave+Bubbles
+-- jadi ComponentsUI/Window keliatan rapih, gak satu file 600 baris wkwk
 
 local Theme       = require(script.Parent.Parent.Theme.AnimulaTheme)
 local Utils       = require(script.Parent.Parent.Core.Utils)
 local Config      = require(script.Parent.Parent.Core.Config)
 local Performance = require(script.Parent.Parent.Core.Performance)
 local Responsive  = require(script.Parent.Parent.Core.Responsive)
+local TitleBar    = require(script.Parent:FindFirstChild("Header"):FindFirstChild("TitleBar"))
+local Sidebar     = require(script.Parent:FindFirstChild("Sidebar"):FindFirstChild("Sidebar"))
+local ContentMod  = require(script.Parent:FindFirstChild("Content"):FindFirstChild("Content"))
+local Wave        = require(script.Parent:FindFirstChild("Effects"):FindFirstChild("Wave"))
+local Bubbles     = require(script.Parent:FindFirstChild("Effects"):FindFirstChild("Bubbles"))
 
 local HttpService      = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
@@ -189,7 +193,7 @@ function Window.new(cfg: WindowConfig): any
     Responsive.AttachConstraints(main)
 
     -- wave di belakang, transparan jadi cuma keliatan samar
-    attachWave(main, T)
+    Wave.Attach(main, T)
 
     -- shadow - gw bikin 2 lapis biar lebih deep
     do
@@ -485,7 +489,7 @@ function Window.new(cfg: WindowConfig): any
     -- particle bubble di contentWrap biar hidup
     -- jangan lupa clipping biar gak keluar
     contentWrap.ClipsDescendants = true
-    spawnBubbles(contentWrap)
+    Bubbles.Spawn(contentWrap)
 
     local contentScroll = Instance.new("ScrollingFrame")
     contentScroll.Name                     = "Content"

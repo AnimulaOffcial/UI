@@ -1,58 +1,42 @@
 --!strict
--- TabManager.lua - attach tabs ke window (modular)
--- sekarang elements di split per-file di Elements/Button, Toggle, dll
--- jadi ComponentsUI keliatan rapih, gak numpuk 1000 baris di satu file wkwk
+-- Tabs/Manager/Manager.lua - attach tabs ke window
+-- sebelumnya ini di TabManager.lua, sekarang dipisah biar rapih
 
-local Theme = require(script.Parent.Parent.Theme.AnimulaTheme)
-local Utils = require(script.Parent.Parent.Core.Utils)
+local Theme = require(script.Parent.Parent.Parent.Theme.AnimulaTheme)
+local Utils = require(script.Parent.Parent.Parent.Core.Utils)
 
--- inject elements dari file terpisah
+local Manager = {}
+
+-- inject semua elements ke Tab (Button, Toggle, Slider, dll)
 local function injectElements(Tab: any, page: Frame)
-    -- helper card dipass ke tiap element via Apply
-    -- tiap element punya file sendiri: Elements/Button/Button.lua dll
-    local base = script.Parent.Parent.Elements
-
-    local function tryApply(folder: string, file: string)
+    local base = script.Parent.Parent.Parent.Elements
+    local function load(name: string, folder: string)
         local ok, mod = pcall(function()
-            local folderInst = base:FindFirstChild(folder)
-            if not folderInst then return nil end
-            local fileInst = folderInst:FindFirstChild(file)
-            if not fileInst then return nil end
-            return require(fileInst)
+            return require(base:FindFirstChild(folder):FindFirstChild(name))
         end)
         if ok and mod and mod.Apply then
-            local ok2, err = pcall(function()
-                mod.Apply(Tab, page, Theme, Utils, require(script.Parent.Parent.Core.Config))
-            end)
-            if not ok2 then
-                warn("[AnimulaUI] gagal load element " .. folder .. "/" .. file .. ": " .. tostring(err))
-            end
-        elseif not ok then
-            warn("[AnimulaUI] require gagal " .. folder .. "/" .. file)
+            mod.Apply(Tab, page, Theme, Utils, require(base.Parent.Core.Config))
         end
     end
-
-    tryApply("Label", "Label")
-    tryApply("Paragraph", "Paragraph")
-    tryApply("Section", "Section")
-    tryApply("Divider", "Divider")
-    tryApply("Button", "Button")
-    tryApply("Toggle", "Toggle")
-    tryApply("Slider", "Slider")
-    tryApply("Dropdown", "Dropdown")
-    tryApply("Textbox", "Textbox")
-    tryApply("ColorPicker", "ColorPicker")
-    tryApply("Keybind", "Keybind")
+    -- urutan penting: Label dulu baru yg lain
+    load("Label", "Label")
+    load("Paragraph", "Paragraph")
+    load("Section", "Section")
+    load("Divider", "Divider")
+    load("Button", "Button")
+    load("Toggle", "Toggle")
+    load("Slider", "Slider")
+    load("Dropdown", "Dropdown")
+    load("Textbox", "Textbox")
+    load("ColorPicker", "ColorPicker")
+    load("Keybind", "Keybind")
 end
 
-local TabManager = {}
-
-function TabManager.Attach(window: any)
+function Manager.Attach(window: any)
     local T = Theme.Current
     local R = Theme.Radius
     local F = Theme.Font
     local S = Theme.TextSize
-
     local sidebar       = window._sidebar       :: ScrollingFrame
     local contentScroll = window._content       :: ScrollingFrame
 
@@ -180,4 +164,4 @@ function TabManager.Attach(window: any)
     window.AddTab  = makeTab
 end
 
-return TabManager
+return Manager
