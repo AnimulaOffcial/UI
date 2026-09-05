@@ -1,7 +1,7 @@
 --!strict
--- loaderui - animula ui v2.2 (bundled, rapih)
--- 100% loadstring mandiri; executor: loadstring(game:HttpGet("https://raw.githubusercontent.com/AnimulaOffcial/UI/main/MainUI/LoaderUI.lua"))()
--- bundle 30+ file ComponentsUI jadi satu, tapi di repo tetep rapih per-folder
+-- Animula BigUI (bundled standalone loader)
+-- loadstring(game:HttpGet("https://raw.githubusercontent.com/AnimulaOffcial/UI/main/MainUI/BigUI/LoaderBigUI.lua"))()
+-- The source components remain organized in BigUI/ComponentsUI.
 
 local __mods = {}
 local function __require(name: string)
