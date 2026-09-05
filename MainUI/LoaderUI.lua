@@ -1,6 +1,6 @@
 --!strict
 -- loaderui - animula ui v2.2 (bundled, rapih)
--- 100% loadstring mandiri; executor: loadstring(game:HttpGet("https://raw.githubusercontent.com/AnimulaOffcial/UI/main/LoaderUI.lua"))()
+-- 100% loadstring mandiri; executor: loadstring(game:HttpGet("https://raw.githubusercontent.com/AnimulaOffcial/UI/main/MainUI/LoaderUI.lua"))()
 -- bundle 30+ file ComponentsUI jadi satu, tapi di repo tetep rapih per-folder
 
 local __mods = {}
