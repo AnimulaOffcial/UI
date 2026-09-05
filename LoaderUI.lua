@@ -1,10 +1,16 @@
 --!strict
 -- loaderui - animula ui v2.2 (bundled, rapih)
--- 100% loadstring, tanpa script.Parent - executor: loadstring(game:HttpGet("https://raw.githubusercontent.com/AnimulaOffcial/UI/main/LoaderUI.lua"))()
+-- 100% loadstring mandiri; executor: loadstring(game:HttpGet("https://raw.githubusercontent.com/AnimulaOffcial/UI/main/LoaderUI.lua"))()
 -- bundle 30+ file ComponentsUI jadi satu, tapi di repo tetep rapih per-folder
 
 local __mods = {}
-local function __require(name) return __mods[name] end
+local function __require(name: string)
+    local module = __mods[name]
+    if module == nil then
+        error("[AnimulaUI] bundled module not found: " .. name, 2)
+    end
+    return module
+end
 
 
 -- ===== ComponentsUI/Theme/AnimulaTheme.lua (AnimulaTheme) =====
@@ -17,25 +23,25 @@ local Theme = {}
 
 -- palet utama animula, jangan di ubah sembarangan ya
 Theme.Animula = {
-    Background    = Color3.fromRGB(13,  20,  38), -- navy paling gelap, buat base
-    Surface       = Color3.fromRGB(19,  30,  58), -- card / window
-    SurfaceLight  = Color3.fromRGB(26,  42,  78), -- hover state
-    SurfaceHover  = Color3.fromRGB(33,  52,  96), -- hover lebih terang
+    Background    = Color3.fromRGB(8,   13,  31), -- midnight blue
+    Surface       = Color3.fromRGB(15,  25,  54), -- main window
+    SurfaceLight  = Color3.fromRGB(23,  39,  79), -- card / inactive tab
+    SurfaceHover  = Color3.fromRGB(34,  59, 111), -- hover
 
-    Primary       = Color3.fromRGB(77,  163, 255), -- biru furina utama
-    PrimaryDark   = Color3.fromRGB(42,  119, 217), -- buat gradient bawah
-    PrimaryLight  = Color3.fromRGB(120, 188, 255), -- glow
-    Secondary     = Color3.fromRGB(91,  202, 255), -- aqua
-    Accent        = Color3.fromRGB(155, 214, 255), -- ice blue pucet
-    AccentGold    = Color3.fromRGB(214, 196, 135), -- gold trim furina, cakep
+    Primary       = Color3.fromRGB(74,  145, 255), -- royal hydro blue
+    PrimaryDark   = Color3.fromRGB(49,   89, 202), -- gradient depth
+    PrimaryLight  = Color3.fromRGB(135, 199, 255), -- glow
+    Secondary     = Color3.fromRGB(106, 208, 255), -- aqua
+    Accent        = Color3.fromRGB(180, 228, 255), -- ice blue
+    AccentGold    = Color3.fromRGB(232, 207, 146), -- Furina gold trim
 
-    Text          = Color3.fromRGB(235, 245, 255),
-    TextDim       = Color3.fromRGB(155, 175, 205),
-    TextMuted     = Color3.fromRGB(105, 125, 158),
+    Text          = Color3.fromRGB(241, 247, 255),
+    TextDim       = Color3.fromRGB(174, 196, 229),
+    TextMuted     = Color3.fromRGB(112, 139, 184),
     TextOnPrimary = Color3.fromRGB(255, 255, 255),
 
-    Border        = Color3.fromRGB(42,  64,  112),
-    BorderLight   = Color3.fromRGB(58,  86,  142),
+    Border        = Color3.fromRGB(47,  78,  143),
+    BorderLight   = Color3.fromRGB(79, 119,  190),
     Shadow        = Color3.fromRGB(0,   0,   0),
 
     Success       = Color3.fromRGB(74,  222, 128),
@@ -3030,11 +3036,11 @@ local Utils       = __require("Utils")
 local Config      = __require("Config")
 local Performance = __require("Performance")
 local Responsive  = __require("Responsive")
-local TitleBar    = __require("TitleBar"):FindFirstChild("TitleBar"))
-local Sidebar     = __require("Sidebar"):FindFirstChild("Sidebar"))
-local ContentMod  = __require("ContentMod"):FindFirstChild("Content"))
-local Wave        = __require("Wave"):FindFirstChild("Wave"))
-local Bubbles     = __require("Bubbles"):FindFirstChild("Bubbles"))
+local TitleBar    = __require("TitleBar")
+local Sidebar     = __require("Sidebar")
+local ContentMod  = __require("ContentMod")
+local Wave        = __require("Wave")
+local Bubbles     = __require("Bubbles")
 
 local HttpService      = game:GetService("HttpService")
 local UserInputService = game:GetService("UserInputService")
@@ -4053,41 +4059,34 @@ local Utils = __require("Utils")
 
 -- inject elements dari file terpisah
 local function injectElements(Tab: any, page: Frame)
-    -- helper card dipass ke tiap element via Apply
-    -- tiap element punya file sendiri: Elements/Button/Button.lua dll
-    local Config = __require("Config")  -- bundled patch
+    -- Bundle loadstring tidak memiliki hierarchy ModuleScript. Semua elemen
+    -- dipanggil langsung lewat registry internal.
+    local elementModules = {
+        Label = "ElLabel", Paragraph = "ElParagraph", Section = "ElSection",
+        Divider = "ElDivider", Button = "ElButton", Toggle = "ElToggle",
+        Slider = "ElSlider", Dropdown = "ElDropdown", Textbox = "ElTextbox",
+        ColorPicker = "ElColorPicker", Keybind = "ElKeybind",
+    }
 
-    local function tryApply(folder: string, file: string)
+    local function tryApply(file: string)
         local ok, mod = pcall(function()
-            local folderInst = base:FindFirstChild(folder)
-            if not folderInst then return nil end
-            local fileInst = folderInst:FindFirstChild(file)
-            if not fileInst then return nil end
-            return require(fileInst)
+            return __require(elementModules[file])
         end)
         if ok and mod and mod.Apply then
             local ok2, err = pcall(function()
                 mod.Apply(Tab, page, Theme, Utils, __require("Config"))
             end)
             if not ok2 then
-                warn("[AnimulaUI] gagal load element " .. folder .. "/" .. file .. ": " .. tostring(err))
+                warn("[AnimulaUI] gagal memuat elemen " .. file .. ": " .. tostring(err))
             end
         elseif not ok then
-            warn("[AnimulaUI] require gagal " .. folder .. "/" .. file)
+            warn("[AnimulaUI] module elemen tidak tersedia: " .. file)
         end
     end
 
-    tryApply("Label", "Label")
-    tryApply("Paragraph", "Paragraph")
-    tryApply("Section", "Section")
-    tryApply("Divider", "Divider")
-    tryApply("Button", "Button")
-    tryApply("Toggle", "Toggle")
-    tryApply("Slider", "Slider")
-    tryApply("Dropdown", "Dropdown")
-    tryApply("Textbox", "Textbox")
-    tryApply("ColorPicker", "ColorPicker")
-    tryApply("Keybind", "Keybind")
+    for _, name in ipairs({ "Label", "Paragraph", "Section", "Divider", "Button", "Toggle", "Slider", "Dropdown", "Textbox", "ColorPicker", "Keybind" }) do
+        tryApply(name)
+    end
 end
 
 local TabManager = {}
@@ -4240,27 +4239,18 @@ local Manager = {}
 
 -- inject semua elements ke Tab (Button, Toggle, Slider, dll)
 local function injectElements(Tab: any, page: Frame)
--- (bundled) dynamic Elements require handled via __mods El*
-    local function load(name: string, folder: string)
-        local ok, mod = pcall(function()
-            return require(base:FindFirstChild(folder):FindFirstChild(name))
-        end)
-        if ok and mod and mod.Apply then
-            mod.Apply(Tab, page, Theme, Utils, require(base.Parent.Core.Config))
+    local modules = {
+        Label = "ElLabel", Paragraph = "ElParagraph", Section = "ElSection",
+        Divider = "ElDivider", Button = "ElButton", Toggle = "ElToggle",
+        Slider = "ElSlider", Dropdown = "ElDropdown", Textbox = "ElTextbox",
+        ColorPicker = "ElColorPicker", Keybind = "ElKeybind",
+    }
+    for name, moduleName in pairs(modules) do
+        local mod = __require(moduleName)
+        if mod.Apply then
+            mod.Apply(Tab, page, Theme, Utils, __require("Config"))
         end
     end
-    -- urutan penting: Label dulu baru yg lain
-    load("Label", "Label")
-    load("Paragraph", "Paragraph")
-    load("Section", "Section")
-    load("Divider", "Divider")
-    load("Button", "Button")
-    load("Toggle", "Toggle")
-    load("Slider", "Slider")
-    load("Dropdown", "Dropdown")
-    load("Textbox", "Textbox")
-    load("ColorPicker", "ColorPicker")
-    load("Keybind", "Keybind")
 end
 
 function Manager.Attach(window: any)

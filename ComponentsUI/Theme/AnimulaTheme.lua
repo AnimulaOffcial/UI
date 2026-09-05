@@ -7,25 +7,25 @@ local Theme = {}
 
 -- palet utama animula, jangan di ubah sembarangan ya
 Theme.Animula = {
-    Background    = Color3.fromRGB(13,  20,  38), -- navy paling gelap, buat base
-    Surface       = Color3.fromRGB(19,  30,  58), -- card / window
-    SurfaceLight  = Color3.fromRGB(26,  42,  78), -- hover state
-    SurfaceHover  = Color3.fromRGB(33,  52,  96), -- hover lebih terang
+    Background    = Color3.fromRGB(8,   13,  31), -- midnight blue
+    Surface       = Color3.fromRGB(15,  25,  54), -- main window
+    SurfaceLight  = Color3.fromRGB(23,  39,  79), -- card / inactive tab
+    SurfaceHover  = Color3.fromRGB(34,  59, 111), -- hover
 
-    Primary       = Color3.fromRGB(77,  163, 255), -- biru furina utama
-    PrimaryDark   = Color3.fromRGB(42,  119, 217), -- buat gradient bawah
-    PrimaryLight  = Color3.fromRGB(120, 188, 255), -- glow
-    Secondary     = Color3.fromRGB(91,  202, 255), -- aqua
-    Accent        = Color3.fromRGB(155, 214, 255), -- ice blue pucet
-    AccentGold    = Color3.fromRGB(214, 196, 135), -- gold trim furina, cakep
+    Primary       = Color3.fromRGB(74,  145, 255), -- royal hydro blue
+    PrimaryDark   = Color3.fromRGB(49,   89, 202), -- gradient depth
+    PrimaryLight  = Color3.fromRGB(135, 199, 255), -- glow
+    Secondary     = Color3.fromRGB(106, 208, 255), -- aqua
+    Accent        = Color3.fromRGB(180, 228, 255), -- ice blue
+    AccentGold    = Color3.fromRGB(232, 207, 146), -- Furina gold trim
 
-    Text          = Color3.fromRGB(235, 245, 255),
-    TextDim       = Color3.fromRGB(155, 175, 205),
-    TextMuted     = Color3.fromRGB(105, 125, 158),
+    Text          = Color3.fromRGB(241, 247, 255),
+    TextDim       = Color3.fromRGB(174, 196, 229),
+    TextMuted     = Color3.fromRGB(112, 139, 184),
     TextOnPrimary = Color3.fromRGB(255, 255, 255),
 
-    Border        = Color3.fromRGB(42,  64,  112),
-    BorderLight   = Color3.fromRGB(58,  86,  142),
+    Border        = Color3.fromRGB(47,  78,  143),
+    BorderLight   = Color3.fromRGB(79, 119,  190),
     Shadow        = Color3.fromRGB(0,   0,   0),
 
     Success       = Color3.fromRGB(74,  222, 128),
