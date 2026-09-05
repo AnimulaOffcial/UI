@@ -30,12 +30,22 @@ export type WindowConfig = {
     Theme: string?,
     SaveConfig: boolean?,
     ConfigFolder: string?,
+    ConfigFile: string?,
     IntroEnabled: boolean?,
     IntroText: string?,
     CloseCallback: (() -> ())?,
     ToggleKey: Enum.KeyCode?,
     Draggable: boolean?,
 }
+
+local function insetSize(size: UDim2, xInset: number, yInset: number): UDim2
+    return UDim2.new(
+        size.X.Scale,
+        size.X.Offset - xInset,
+        size.Y.Scale,
+        size.Y.Offset - yInset
+    )
+end
 
 -- helper kecil buat bikin wave layer di belakang window
 -- gw taro di dalem file ini aja biar gak kebanyakan require
@@ -190,7 +200,7 @@ function Window.new(cfg: WindowConfig): any
     Utils.Stroke(main, T.Border, 1.5, 0.14)
     -- clamp biar gak kegedean / kekecilan di device aneh
     -- html gak ada ini, di html pake max-width / min-width
-    Responsive.AttachConstraints(main)
+    local sizeConstraint, aspectConstraint = Responsive.AttachConstraints(main)
 
     -- wave di belakang, transparan jadi cuma keliatan samar
     Wave.Attach(main, T)
@@ -288,6 +298,7 @@ function Window.new(cfg: WindowConfig): any
     titleBar.BackgroundTransparency = 1
     titleBar.Size                   = UDim2.new(1, 0, 0, 52)
     titleBar.Position               = UDim2.fromOffset(0, 3)
+    titleBar.Active                 = true
     titleBar.ZIndex                 = 6
     titleBar.Parent                 = main
 
@@ -392,6 +403,22 @@ function Window.new(cfg: WindowConfig): any
     ctrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
     ctrlLayout.Parent              = controls
 
+    local navButton = Instance.new("TextButton")
+    navButton.Name             = "NavigationToggle"
+    navButton.BackgroundColor3 = T.SurfaceLight
+    navButton.Position         = UDim2.fromOffset(12, 12)
+    navButton.Size             = UDim2.fromOffset(28, 28)
+    navButton.FontFace         = F.Heading
+    navButton.TextSize         = 16
+    navButton.TextColor3       = T.Text
+    navButton.Text             = "☰"
+    navButton.AutoButtonColor  = false
+    navButton.Visible          = false
+    navButton.ZIndex           = 9
+    navButton.Parent           = titleBar
+    Utils.Corner(navButton, UDim.new(0, 8))
+    Utils.Stroke(navButton, T.Border, 1, 0.5)
+
     local function makeCtrlBtn(text: string, hover: Color3, cb: () -> ()): TextButton
         local b = Instance.new("TextButton")
         b.Name             = text
@@ -425,6 +452,7 @@ function Window.new(cfg: WindowConfig): any
     body.BackgroundTransparency = 1
     body.Position               = UDim2.fromOffset(0, 56)
     body.Size                   = UDim2.new(1, 0, 1, -56)
+    body.ClipsDescendants       = true
     body.ZIndex                 = 4
     body.Parent                 = main
 
@@ -452,22 +480,16 @@ function Window.new(cfg: WindowConfig): any
     sideList.SortOrder     = Enum.SortOrder.LayoutOrder
     sideList.Parent        = sidebar
 
-    -- collapse sidebar di HP biar gak sempit
-    local isPhone: boolean = Responsive.ShouldCollapseSidebar()
-    local sidebarW: number = if isPhone then 0 else 168
-    local contentX: number = if isPhone then 8 else 176
-    local contentW: number = if isPhone then -16 else -184
-    if isPhone then
-        sidebar.Visible = false -- di HP hidden, nanti bisa di toggle hamburger
-    end
+    local isPhone: boolean = false
+    local drawerOpen: boolean = false
 
     -- content wrapper - glass effect dikit
     local contentWrap = Instance.new("Frame")
     contentWrap.Name                     = "ContentWrap"
     contentWrap.BackgroundColor3         = T.SurfaceLight
     contentWrap.BackgroundTransparency   = 0.08
-    contentWrap.Size                     = UDim2.new(1, contentW, 1, -12)
-    contentWrap.Position                 = UDim2.new(0, contentX, 0, 6)
+    contentWrap.Size                     = UDim2.new(1, -184, 1, -12)
+    contentWrap.Position                 = UDim2.fromOffset(176, 6)
     contentWrap.ZIndex                   = 5
     contentWrap.Parent                   = body
     Utils.Corner(contentWrap, R.Large)
@@ -510,6 +532,59 @@ function Window.new(cfg: WindowConfig): any
     contentList.SortOrder     = Enum.SortOrder.LayoutOrder
     contentList.Parent        = contentScroll
 
+    local function setSidebarOpen(open: boolean)
+        if not isPhone then return end
+        drawerOpen = open
+        if open then
+            sidebar.Visible = true
+            Performance.Tween(sidebar, { Position = UDim2.fromOffset(8, 6) }, 0.20)
+        elseif sidebar.Visible then
+            Performance.Tween(sidebar, { Position = UDim2.fromOffset(-176, 6) }, 0.16)
+            task.delay(0.16, function()
+                if isPhone and not drawerOpen and sidebar.Parent then sidebar.Visible = false end
+            end)
+        end
+    end
+
+    local function applyResponsiveLayout(phone: boolean)
+        isPhone = phone
+        navButton.Visible = phone
+        if phone then
+            iconWrap.Position = UDim2.fromOffset(48, 8)
+            titleLabel.Position = UDim2.fromOffset(92, 6)
+            titleLabel.Size = UDim2.new(1, -174, 0, 20)
+            subLabel.Position = UDim2.fromOffset(92, 26)
+            subLabel.Size = UDim2.new(1, -174, 0, 14)
+            sidebar.ZIndex = 10
+            contentWrap.Position = UDim2.fromOffset(8, 6)
+            contentWrap.Size = UDim2.new(1, -16, 1, -12)
+            if drawerOpen then
+                sidebar.Visible = true
+                sidebar.Position = UDim2.fromOffset(8, 6)
+            else
+                sidebar.Visible = false
+                sidebar.Position = UDim2.fromOffset(-176, 6)
+            end
+        else
+            drawerOpen = false
+            iconWrap.Position = UDim2.fromOffset(14, 8)
+            titleLabel.Position = UDim2.fromOffset(58, 6)
+            titleLabel.Size = UDim2.new(1, -140, 0, 20)
+            subLabel.Position = UDim2.fromOffset(58, 26)
+            subLabel.Size = UDim2.new(1, -140, 0, 14)
+            sidebar.ZIndex = 5
+            sidebar.Visible = true
+            sidebar.Position = UDim2.fromOffset(8, 6)
+            contentWrap.Position = UDim2.fromOffset(176, 6)
+            contentWrap.Size = UDim2.new(1, -184, 1, -12)
+        end
+    end
+
+    navButton.MouseButton1Click:Connect(function()
+        setSidebarOpen(not drawerOpen)
+    end)
+    applyResponsiveLayout(Responsive.ShouldCollapseSidebar())
+
     -- anti-lag: debounced canvas
     local pool: any = Performance.NewPool()
     pool:Add(Performance.AutoCanvas(sidebar, sideList, 24))
@@ -531,14 +606,23 @@ function Window.new(cfg: WindowConfig): any
     self._visible   = true
     self._winSize   = winSize
     self._closeCb   = cfg.CloseCallback
+    self._constraints = { sizeConstraint, aspectConstraint }
     self._T         = T
     self._R         = R
     self._F         = F
     self._S         = S
+    self._closeSidebar = function()
+        setSidebarOpen(false)
+    end
+
+    Responsive.ObserveViewport(screenGui, function(viewport: Vector2)
+        applyResponsiveLayout(Responsive.ShouldCollapseSidebar(viewport))
+    end)
 
     if cfg.SaveConfig and cfg.ConfigFolder then
         self._configFolder = cfg.ConfigFolder
-        Config:LoadFromFile(cfg.ConfigFolder, "config")
+        self._configFile = cfg.ConfigFile or "config"
+        Config:LoadFromFile(cfg.ConfigFolder, self._configFile)
     end
 
     -- controls
@@ -546,11 +630,19 @@ function Window.new(cfg: WindowConfig): any
     makeCtrlBtn("—", T.SurfaceHover, function()
         minimized = not minimized
         if minimized then
+            sizeConstraint.Parent = nil
+            aspectConstraint.Parent = nil
             Performance.Tween(body, { Size = UDim2.new(1, 0, 0, 0) }, 0.22)
-            Performance.Tween(main, { Size = UDim2.fromOffset(winSize.X.Offset, 56) }, 0.22)
+            Performance.Tween(main, { Size = UDim2.new(winSize.X.Scale, winSize.X.Offset, 0, 56) }, 0.22)
         else
             Performance.Tween(body, { Size = UDim2.new(1, 0, 1, -56) }, 0.22)
             Performance.Tween(main, { Size = winSize }, 0.22)
+            task.delay(0.22, function()
+                if not minimized and main.Parent then
+                    sizeConstraint.Parent = main
+                    aspectConstraint.Parent = main
+                end
+            end)
         end
     end)
     makeCtrlBtn("✕", Color3.fromRGB(220, 60, 60), function()
@@ -572,7 +664,7 @@ function Window.new(cfg: WindowConfig): any
     end
 
     -- entrance - scale + fade, biar pop
-    main.Size                   = UDim2.fromOffset(winSize.X.Offset - 28, winSize.Y.Offset - 28)
+    main.Size                   = insetSize(winSize, 28, 28)
     main.BackgroundTransparency = 0.2
     -- scale dikit dulu terus balik
     Performance.Tween(main, { Size = winSize }, 0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -586,6 +678,11 @@ function Window:SetTitle(newTitle: string, newSub: string?)
     if newSub then
         (self._subLbl :: TextLabel).Text = newSub
     end
+end
+
+function Window:SaveConfig(): boolean
+    if not self._configFolder then return false end
+    return Config:SaveToFile(self._configFolder, self._configFile or "config")
 end
 
 function Window:SetTheme(name: string)
@@ -603,21 +700,19 @@ function Window:SetTheme(name: string)
 end
 
 function Window:Toggle(state: boolean?)
+    if self._destroyed then return end
     local show: boolean = if state == nil then not self._visible else (state :: boolean)
     self._visible = show
     if show then
         (self._gui :: ScreenGui).Enabled = true
         ;(self._main :: Frame).Visible   = true
         Performance.Tween(self._main, { BackgroundTransparency = 0 }, 0.2)
-        ;(self._main :: Frame).Size = UDim2.fromOffset(
-            (self._winSize :: UDim2).X.Offset - 16,
-            (self._winSize :: UDim2).Y.Offset - 16
-        )
+        ;(self._main :: Frame).Size = insetSize(self._winSize :: UDim2, 16, 16)
         Performance.Tween(self._main, { Size = self._winSize }, 0.3, Enum.EasingStyle.Back)
     else
         Performance.Tween(self._main, { BackgroundTransparency = 1 }, 0.18)
         task.delay(0.18, function()
-            if not self._visible then
+            if not self._destroyed and not self._visible then
                 (self._main :: Frame).Visible = false
             end
         end)
@@ -625,7 +720,15 @@ function Window:Toggle(state: boolean?)
 end
 
 function Window:Destroy()
+    if self._destroyed then return end
+    self._destroyed = true
+    self:SaveConfig()
     if self._pool then (self._pool :: any):Clear() end
+    if self._constraints then
+        for _, constraint in ipairs(self._constraints :: { Instance }) do
+            constraint:Destroy()
+        end
+    end
     (self._gui :: ScreenGui):Destroy()
 end
 

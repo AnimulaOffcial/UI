@@ -36,6 +36,11 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         if suffix ~= "" then suffix = " " .. suffix end
 
         def = math.clamp(def, min, max)
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "number" then def = math.clamp(stored, min, max) end
+        end
+        def = Utils.Round(def, step)
         if flag then Config:SetFlag(flag, def) end
 
         local f = card(62)
@@ -104,7 +109,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             Utils.Tween(fill,  { Size = UDim2.new(alpha, 0, 1, 0) }, 0.08)
             Utils.Tween(knob2, { Position = UDim2.new(alpha, -7, 0.5, -7) }, 0.08)
             valueLbl.Text = tostring(v) .. suffix
-            if flag then Config:SetFlag(flag, v) end
+            if flag then Config:SetFlag(flag, v, true) end
             if not noCb and cb then task.spawn(cb, v) end
         end
 
@@ -124,13 +129,13 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
                 fromInput(input)
             end
         end)
-        game:GetService("UserInputService").InputEnded:Connect(function(input: InputObject)
+        Utils.Connect(f, game:GetService("UserInputService").InputEnded, function(input: InputObject)
             if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
             end
         end)
-        game:GetService("UserInputService").InputChanged:Connect(function(input: InputObject)
+        Utils.Connect(f, game:GetService("UserInputService").InputChanged, function(input: InputObject)
             local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
             local isTouch = input.UserInputType == Enum.UserInputType.Touch
             if dragging and (isMove or isTouch) then fromInput(input) end

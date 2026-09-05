@@ -33,7 +33,10 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local disappear: boolean = cfg.TextDisappear or false
         local numeric: boolean   = cfg.Numeric or false
 
-        if flag and def ~= "" then Config:SetFlag(flag, def) end
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "string" then def = stored end
+        end
 
         local f = card(52)
 
@@ -65,6 +68,13 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
         local obj: any = { Value = def, Save = save }
 
+        local function set(v: string, noCb: boolean?)
+            box.Text = v
+            obj.Value = v
+            if flag then Config:SetFlag(flag, v, true) end
+            if not noCb and cb then task.spawn(cb, v) end
+        end
+
         box.Focused:Connect(function()
             local st = box:FindFirstChildOfClass("UIStroke") :: UIStroke?
             if st then Utils.Tween(st, { Color = T.Primary }, 0.15) end
@@ -79,13 +89,11 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
                 val      = tostring(n)
                 box.Text = val
             end
-            obj.Value = val
-            if flag then Config:SetFlag(flag, val) end
-            if cb then task.spawn(cb, val) end
+            set(val)
         end)
 
         if flag then Config:Register(flag, obj) end
-        function obj:Set(v: string) box.Text = v; obj.Value = v end
+        function obj:Set(v: string) set(v) end
         function obj:Get() return box.Text end
 
         return obj

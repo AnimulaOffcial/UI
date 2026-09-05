@@ -34,7 +34,14 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
         local selected: any = if multi then {} else (def or options[1])
         if multi and typeof(def) == "table" then selected = def end
-        if flag then Config:SetFlag(flag, selected) end
+        if flag then
+            local stored = Config:Initialize(flag, selected)
+            if multi and typeof(stored) == "table" then
+                selected = stored
+            elseif not multi and typeof(stored) == "string" then
+                selected = stored
+            end
+        end
 
         local f = card(52)
         f.ClipsDescendants = false
@@ -143,7 +150,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local function refreshText()
             boxText.Text = displayText()
             obj.Value    = selected
-            if flag then Config:SetFlag(flag, selected) end
+            if flag then Config:SetFlag(flag, selected, true) end
             if cb then task.spawn(cb, selected) end
         end
 
@@ -223,8 +230,8 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         buildItems()
 
         box.MouseButton1Click:Connect(function() setOpen(not open) end)
-        game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject)
-            if open and input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject)
+            if open and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
                 local pos     = input.Position
                 local absPos  = box.AbsolutePosition
                 local absSize = box.AbsoluteSize

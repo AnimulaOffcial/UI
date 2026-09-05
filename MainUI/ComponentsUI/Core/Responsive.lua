@@ -53,11 +53,52 @@ local Theme = require(script.Parent.Parent.Theme.AnimulaTheme)
 
 local Responsive = {}
 
+local function getViewport(viewport: Vector2?): Vector2
+    if viewport then return viewport end
+    local camera = workspace.CurrentCamera
+    return if camera then camera.ViewportSize else Vector2.new(1920, 1080)
+end
+
+function Responsive.GetViewport(viewport: Vector2?): Vector2
+    return getViewport(viewport)
+end
+
+-- Watch both camera replacement and viewport changes, then clean up with the GUI.
+function Responsive.ObserveViewport(owner: Instance, callback: (Vector2) -> ()): () -> ()
+    local cameraConnection: RBXScriptConnection? = nil
+    local workspaceConnection: RBXScriptConnection? = nil
+    local alive = true
+
+    local function disconnect()
+        if not alive then return end
+        alive = false
+        if cameraConnection and cameraConnection.Connected then cameraConnection:Disconnect() end
+        if workspaceConnection and workspaceConnection.Connected then workspaceConnection:Disconnect() end
+    end
+
+    local function bindCamera()
+        if not alive then return end
+        if cameraConnection and cameraConnection.Connected then cameraConnection:Disconnect() end
+        local camera = workspace.CurrentCamera
+        if camera then
+            cameraConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+                if alive then callback(getViewport()) end
+            end)
+        end
+        callback(getViewport())
+    end
+
+    workspaceConnection = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera)
+    owner.Destroying:Connect(disconnect)
+    bindCamera()
+    return disconnect
+end
+
 -- deteksi device berdasarkan viewport
 export type Device = "Phone" | "Tablet" | "Desktop"
 
 function Responsive.GetDevice(viewport: Vector2?): Device
-    local vp: Vector2 = viewport or workspace.CurrentCamera.ViewportSize
+    local vp = getViewport(viewport)
     if vp.X < 600 then
         return "Phone"
     elseif vp.X < 1024 then
@@ -94,7 +135,7 @@ function Responsive.AttachConstraints(frame: GuiObject)
 
     local sc = Instance.new("UISizeConstraint")
     sc.Name    = "Animula_Constraint"
-    sc.MinSize = Vector2.new(480, 320) -- HP tetep usable
+    sc.MinSize = Vector2.new(320, 240) -- masih muat di layar HP 320px
     sc.MaxSize = Vector2.new(700, 500) -- PC jangan 1000+ ntar aneh
     sc.Parent  = frame
 
@@ -116,9 +157,7 @@ function Responsive.AttachScale(gui: ScreenGui | Frame): UIScale
     scale.Name   = "Animula_Scale"
     scale.Parent = gui
 
-    local cam: Camera? = workspace.CurrentCamera
-    local function update()
-        local vp: Vector2 = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+    Responsive.ObserveViewport(gui, function(vp: Vector2)
         -- 1920 = baseline desktop, clamp 0.65 - 1.0
         local s: number = math.clamp(vp.X / 1920, 0.65, 1.0)
         -- di HP jangan terlalu kecil, minimal 0.78 biar text kebaca
@@ -126,19 +165,14 @@ function Responsive.AttachScale(gui: ScreenGui | Frame): UIScale
             s = math.clamp(vp.X / 375 * 0.88, 0.78, 0.92)
         end
         scale.Scale = s
-    end
-
-    update()
-    if cam then
-        cam:GetPropertyChangedSignal("ViewportSize"):Connect(update)
-    end
+    end)
 
     return scale
 end
 
 -- collapse sidebar kalo di HP (biar content gak sempit)
 function Responsive.ShouldCollapseSidebar(viewport: Vector2?): boolean
-    local vp: Vector2 = viewport or workspace.CurrentCamera.ViewportSize
+    local vp = getViewport(viewport)
     return vp.X < 600
 end
 

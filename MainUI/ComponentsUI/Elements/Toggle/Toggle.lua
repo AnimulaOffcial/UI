@@ -31,7 +31,10 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local flag: string? = cfg.Flag
         local save: boolean = cfg.Save or false
         local cb: ((boolean) -> ())? = cfg.Callback
-        if flag then Config:SetFlag(flag, def) end
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "boolean" then def = stored end
+        end
 
         local h = if desc then 54 else 42
         local f = card(h)
@@ -88,7 +91,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             obj.Value = v
             Utils.Tween(track, { BackgroundColor3 = if v then T.ToggleOn else T.ToggleOff }, 0.18)
             Utils.Tween(knob,  { Position = if v then UDim2.fromOffset(23, 3) else UDim2.fromOffset(3, 3) }, 0.18)
-            if flag then Config:SetFlag(flag, v) end
+            if flag then Config:SetFlag(flag, v, true) end
             if not noCb and cb then task.spawn(cb, v) end
         end
 

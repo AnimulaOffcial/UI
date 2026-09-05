@@ -3,9 +3,11 @@
 -- sekarang dipecah jadi 3 file biar rapih: Toast/Toast.lua, Dialog/Dialog.lua, Popup/Popup.lua
 -- tapi biar kompat, file ini tetep ada dan nge-require mereka
 
-local Toast  = require(script:FindFirstChild("Toast"):FindFirstChild("Toast"))
-local Dialog = require(script:FindFirstChild("Dialog"):FindFirstChild("Dialog"))
-local Popup  = require(script:FindFirstChild("Popup"):FindFirstChild("Popup"))
+local folder = script.Parent
+if not folder then error("Notification requires its folder hierarchy.") end
+local Toast  = require(folder:WaitForChild("Toast"):WaitForChild("Toast"))
+local Dialog = require(folder:WaitForChild("Dialog"):WaitForChild("Dialog"))
+local Popup  = require(folder:WaitForChild("Popup"):WaitForChild("Popup"))
 
 local Notification = {}
 

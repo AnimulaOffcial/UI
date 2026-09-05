@@ -202,16 +202,73 @@ __mods["Config"] = (function()
 -- konsep nya kayak orion: tiap element punya Flag, terus bisa di akses via Flags[flag].Value
 -- gw tambahin save/load ke file juga biar gak ilang pas rejoin
 
+local HttpService = game:GetService("HttpService")
+
 local Config = {}
 
 local _flags:     { [string]: any }         = {}
 local _callbacks: { [string]: (any) -> () } = {}
 local _elements:  { [string]: any }         = {} -- ref ke element object nya
+local _proxies:   { [string]: any }         = {}
 
-function Config:SetFlag(flag: string, value: any)
+local function encodeValue(value: any): any
+    local kind = typeof(value)
+    if kind == "Color3" then
+        local color = value :: Color3
+        return {
+            __animula_type = "Color3",
+            r = color.R,
+            g = color.G,
+            b = color.B,
+        }
+    elseif kind == "EnumItem" then
+        local item: any = value
+        return {
+            __animula_type = "EnumItem",
+            enum = tostring(item.EnumType),
+            name = item.Name,
+        }
+    elseif kind == "table" then
+        local result: { [any]: any } = {}
+        for key, item in pairs(value :: { [any]: any }) do
+            local encoded = encodeValue(item)
+            if encoded ~= nil then result[key] = encoded end
+        end
+        return result
+    elseif kind == "string" or kind == "number" or kind == "boolean" then
+        return value
+    end
+    return nil
+end
+
+local function decodeValue(value: any): any
+    if typeof(value) ~= "table" then return value end
+
+    local data: any = value
+    if data.__animula_type == "Color3" then
+        local r, g, b = tonumber(data.r), tonumber(data.g), tonumber(data.b)
+        if r and g and b then return Color3.new(r, g, b) end
+    elseif data.__animula_type == "EnumItem" and type(data.enum) == "string" and type(data.name) == "string" then
+        local enumName = string.match(data.enum, "^Enum%.(.+)$")
+        local enumTable: any = enumName and (Enum :: any)[enumName]
+        local item = enumTable and enumTable[data.name]
+        if item then return item end
+    end
+
+    local result: { [any]: any } = {}
+    for key, item in pairs(data) do
+        result[key] = decodeValue(item)
+    end
+    return result
+end
+
+function Config:SetFlag(flag: string, value: any, fromElement: boolean?)
     _flags[flag] = value
     local el = _elements[flag]
-    if el then
+    if el and not fromElement and type((el :: any).Set) == "function" then
+        (el :: any):Set(value)
+        return
+    elseif el then
         (el :: any).Value = value
     end
     local cb = _callbacks[flag]
@@ -224,24 +281,62 @@ function Config:GetFlag(flag: string, default: any?): any
     return v
 end
 
+function Config:HasFlag(flag: string): boolean
+    return _flags[flag] ~= nil
+end
+
+-- Use the stored value when a config file was loaded before the UI was built.
+function Config:Initialize(flag: string, default: any): any
+    if _flags[flag] == nil then
+        Config:SetFlag(flag, default)
+    end
+    return _flags[flag]
+end
+
 function Config:OnChanged(flag: string, cb: (any) -> ())
     _callbacks[flag] = cb
 end
 
 function Config:Register(flag: string, element: any)
     _elements[flag] = element
+    if _flags[flag] ~= nil then
+        if type(element.Set) == "function" then
+            element:Set(_flags[flag])
+        else
+            element.Value = _flags[flag]
+        end
+    end
 end
 
 -- ini yg dipake di luar: AnimulaUI.Flags["myFlag"].Value
 Config.Flags = {} :: { [string]: { Value: any } }
 
+local function getProxy(key: string): any
+    local proxy = _proxies[key]
+    if proxy then return proxy end
+
+    proxy = {}
+    setmetatable(proxy, {
+        __index = function(_, field: string)
+            if field == "Value" then return _flags[key] end
+            return nil
+        end,
+        __newindex = function(_, field: string, value: any)
+            if field == "Value" then
+                Config:SetFlag(key, value)
+            else
+                rawset(proxy, field, value)
+            end
+        end,
+    })
+    _proxies[key] = proxy
+    return proxy
+end
+
 setmetatable(Config.Flags, {
     __index = function(_, key: string)
-        local v = _flags[key]
-        if v ~= nil then
-            return { Value = v }
-        end
-        return nil
+        if _flags[key] == nil then return nil end
+        return getProxy(key)
     end,
     __newindex = function(_, key: string, val: any)
         local value = if typeof(val) == "table" and (val :: any).Value ~= nil
@@ -252,23 +347,36 @@ setmetatable(Config.Flags, {
 })
 
 -- save/load ke file (cuma jalan di executor yg support writefile)
-function Config:SaveToFile(folder: string, fileName: string)
+function Config:SaveToFile(folder: string, fileName: string): boolean
     local ok = pcall(function()
-        if not isfolder(folder) then makefolder(folder) end
-        writefile(folder .. "/" .. fileName .. ".json",
-            game:GetService("HttpService"):JSONEncode(_flags))
+        if type(writefile) ~= "function" then error("writefile is unavailable") end
+        if type(isfolder) == "function" and not isfolder(folder) then
+            if type(makefolder) ~= "function" then error("makefolder is unavailable") end
+            makefolder(folder)
+        end
+
+        local saved: { [string]: any } = {}
+        for flag, value in pairs(_flags) do
+            local element = _elements[flag]
+            if element == nil or (element :: any).Save == true then
+                local encoded = encodeValue(value)
+                if encoded ~= nil then saved[flag] = encoded end
+            end
+        end
+        writefile(folder .. "/" .. fileName .. ".json", HttpService:JSONEncode(saved))
     end)
     return ok
 end
 
 function Config:LoadFromFile(folder: string, fileName: string): boolean
     local ok, result = pcall(function()
+        if type(readfile) ~= "function" then error("readfile is unavailable") end
         local raw = readfile(folder .. "/" .. fileName .. ".json")
-        return game:GetService("HttpService"):JSONDecode(raw)
+        return HttpService:JSONDecode(raw)
     end)
     if ok and typeof(result) == "table" then
-        for k, v in pairs(result :: any) do
-            Config:SetFlag(k, v)
+        for key, value in pairs(result :: any) do
+            Config:SetFlag(key, decodeValue(value))
         end
         return true
     end
@@ -610,6 +718,22 @@ function Utils.Tween(
     return tw
 end
 
+-- Disconnect listeners owned by a GUI when that GUI is destroyed. This matters
+-- for UserInputService listeners, which otherwise outlive the window.
+function Utils.Connect(
+    owner: Instance,
+    signal: RBXScriptSignal,
+    callback: (...any) -> ()
+): RBXScriptConnection
+    local connection = signal:Connect(callback)
+    local cleanup: RBXScriptConnection? = nil
+    cleanup = owner.Destroying:Connect(function()
+        if connection.Connected then connection:Disconnect() end
+        if cleanup and cleanup.Connected then cleanup:Disconnect() end
+    end)
+    return connection
+end
+
 -- bikin frame bisa di drag
 -- simple aja, gak perlu ribet
 function Utils.MakeDraggable(dragHandle: GuiObject, target: GuiObject)
@@ -617,7 +741,7 @@ function Utils.MakeDraggable(dragHandle: GuiObject, target: GuiObject)
     local dragStart = Vector2.zero
     local startPos  = target.Position
 
-    dragHandle.InputBegan:Connect(function(input: InputObject)
+    Utils.Connect(target, dragHandle.InputBegan, function(input: InputObject)
         local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
         local isTouch = input.UserInputType == Enum.UserInputType.Touch
         if isMouse or isTouch then
@@ -632,7 +756,7 @@ function Utils.MakeDraggable(dragHandle: GuiObject, target: GuiObject)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input: InputObject)
+    Utils.Connect(target, UserInputService.InputChanged, function(input: InputObject)
         local isMove  = input.UserInputType == Enum.UserInputType.MouseMovement
         local isTouch = input.UserInputType == Enum.UserInputType.Touch
         if dragging and (isMove or isTouch) then
@@ -761,11 +885,52 @@ local Theme = __require("AnimulaTheme")
 
 local Responsive = {}
 
+local function getViewport(viewport: Vector2?): Vector2
+    if viewport then return viewport end
+    local camera = workspace.CurrentCamera
+    return if camera then camera.ViewportSize else Vector2.new(1920, 1080)
+end
+
+function Responsive.GetViewport(viewport: Vector2?): Vector2
+    return getViewport(viewport)
+end
+
+-- Watch both camera replacement and viewport changes, then clean up with the GUI.
+function Responsive.ObserveViewport(owner: Instance, callback: (Vector2) -> ()): () -> ()
+    local cameraConnection: RBXScriptConnection? = nil
+    local workspaceConnection: RBXScriptConnection? = nil
+    local alive = true
+
+    local function disconnect()
+        if not alive then return end
+        alive = false
+        if cameraConnection and cameraConnection.Connected then cameraConnection:Disconnect() end
+        if workspaceConnection and workspaceConnection.Connected then workspaceConnection:Disconnect() end
+    end
+
+    local function bindCamera()
+        if not alive then return end
+        if cameraConnection and cameraConnection.Connected then cameraConnection:Disconnect() end
+        local camera = workspace.CurrentCamera
+        if camera then
+            cameraConnection = camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
+                if alive then callback(getViewport()) end
+            end)
+        end
+        callback(getViewport())
+    end
+
+    workspaceConnection = workspace:GetPropertyChangedSignal("CurrentCamera"):Connect(bindCamera)
+    owner.Destroying:Connect(disconnect)
+    bindCamera()
+    return disconnect
+end
+
 -- deteksi device berdasarkan viewport
 export type Device = "Phone" | "Tablet" | "Desktop"
 
 function Responsive.GetDevice(viewport: Vector2?): Device
-    local vp: Vector2 = viewport or workspace.CurrentCamera.ViewportSize
+    local vp = getViewport(viewport)
     if vp.X < 600 then
         return "Phone"
     elseif vp.X < 1024 then
@@ -802,7 +967,7 @@ function Responsive.AttachConstraints(frame: GuiObject)
 
     local sc = Instance.new("UISizeConstraint")
     sc.Name    = "Animula_Constraint"
-    sc.MinSize = Vector2.new(480, 320) -- HP tetep usable
+    sc.MinSize = Vector2.new(320, 240) -- masih muat di layar HP 320px
     sc.MaxSize = Vector2.new(700, 500) -- PC jangan 1000+ ntar aneh
     sc.Parent  = frame
 
@@ -824,9 +989,7 @@ function Responsive.AttachScale(gui: ScreenGui | Frame): UIScale
     scale.Name   = "Animula_Scale"
     scale.Parent = gui
 
-    local cam: Camera? = workspace.CurrentCamera
-    local function update()
-        local vp: Vector2 = cam and cam.ViewportSize or Vector2.new(1920, 1080)
+    Responsive.ObserveViewport(gui, function(vp: Vector2)
         -- 1920 = baseline desktop, clamp 0.65 - 1.0
         local s: number = math.clamp(vp.X / 1920, 0.65, 1.0)
         -- di HP jangan terlalu kecil, minimal 0.78 biar text kebaca
@@ -834,19 +997,14 @@ function Responsive.AttachScale(gui: ScreenGui | Frame): UIScale
             s = math.clamp(vp.X / 375 * 0.88, 0.78, 0.92)
         end
         scale.Scale = s
-    end
-
-    update()
-    if cam then
-        cam:GetPropertyChangedSignal("ViewportSize"):Connect(update)
-    end
+    end)
 
     return scale
 end
 
 -- collapse sidebar kalo di HP (biar content gak sempit)
 function Responsive.ShouldCollapseSidebar(viewport: Vector2?): boolean
-    local vp: Vector2 = viewport or workspace.CurrentCamera.ViewportSize
+    local vp = getViewport(viewport)
     return vp.X < 600
 end
 
@@ -1671,7 +1829,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
         local function fire()
             if cb then task.spawn(cb) end
-            if flag then Config:SetFlag(flag, true) end
+            if flag then Config:SetFlag(flag, true, true) end
         end
         btn.MouseButton1Click:Connect(fire)
 
@@ -1721,7 +1879,10 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local flag: string? = cfg.Flag
         local save: boolean = cfg.Save or false
         local cb: ((boolean) -> ())? = cfg.Callback
-        if flag then Config:SetFlag(flag, def) end
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "boolean" then def = stored end
+        end
 
         local h = if desc then 54 else 42
         local f = card(h)
@@ -1778,7 +1939,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             obj.Value = v
             Utils.Tween(track, { BackgroundColor3 = if v then T.ToggleOn else T.ToggleOff }, 0.18)
             Utils.Tween(knob,  { Position = if v then UDim2.fromOffset(23, 3) else UDim2.fromOffset(3, 3) }, 0.18)
-            if flag then Config:SetFlag(flag, v) end
+            if flag then Config:SetFlag(flag, v, true) end
             if not noCb and cb then task.spawn(cb, v) end
         end
 
@@ -1837,6 +1998,11 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         if suffix ~= "" then suffix = " " .. suffix end
 
         def = math.clamp(def, min, max)
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "number" then def = math.clamp(stored, min, max) end
+        end
+        def = Utils.Round(def, step)
         if flag then Config:SetFlag(flag, def) end
 
         local f = card(62)
@@ -1905,7 +2071,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             Utils.Tween(fill,  { Size = UDim2.new(alpha, 0, 1, 0) }, 0.08)
             Utils.Tween(knob2, { Position = UDim2.new(alpha, -7, 0.5, -7) }, 0.08)
             valueLbl.Text = tostring(v) .. suffix
-            if flag then Config:SetFlag(flag, v) end
+            if flag then Config:SetFlag(flag, v, true) end
             if not noCb and cb then task.spawn(cb, v) end
         end
 
@@ -1925,13 +2091,13 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
                 fromInput(input)
             end
         end)
-        game:GetService("UserInputService").InputEnded:Connect(function(input: InputObject)
+        Utils.Connect(f, game:GetService("UserInputService").InputEnded, function(input: InputObject)
             if input.UserInputType == Enum.UserInputType.MouseButton1
             or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
             end
         end)
-        game:GetService("UserInputService").InputChanged:Connect(function(input: InputObject)
+        Utils.Connect(f, game:GetService("UserInputService").InputChanged, function(input: InputObject)
             local isMove = input.UserInputType == Enum.UserInputType.MouseMovement
             local isTouch = input.UserInputType == Enum.UserInputType.Touch
             if dragging and (isMove or isTouch) then fromInput(input) end
@@ -1987,7 +2153,14 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
         local selected: any = if multi then {} else (def or options[1])
         if multi and typeof(def) == "table" then selected = def end
-        if flag then Config:SetFlag(flag, selected) end
+        if flag then
+            local stored = Config:Initialize(flag, selected)
+            if multi and typeof(stored) == "table" then
+                selected = stored
+            elseif not multi and typeof(stored) == "string" then
+                selected = stored
+            end
+        end
 
         local f = card(52)
         f.ClipsDescendants = false
@@ -2096,7 +2269,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local function refreshText()
             boxText.Text = displayText()
             obj.Value    = selected
-            if flag then Config:SetFlag(flag, selected) end
+            if flag then Config:SetFlag(flag, selected, true) end
             if cb then task.spawn(cb, selected) end
         end
 
@@ -2176,8 +2349,8 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         buildItems()
 
         box.MouseButton1Click:Connect(function() setOpen(not open) end)
-        game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject)
-            if open and input.UserInputType == Enum.UserInputType.MouseButton1 then
+        Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject)
+            if open and (input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch) then
                 local pos     = input.Position
                 local absPos  = box.AbsolutePosition
                 local absSize = box.AbsoluteSize
@@ -2247,7 +2420,10 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local disappear: boolean = cfg.TextDisappear or false
         local numeric: boolean   = cfg.Numeric or false
 
-        if flag and def ~= "" then Config:SetFlag(flag, def) end
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "string" then def = stored end
+        end
 
         local f = card(52)
 
@@ -2279,6 +2455,13 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
         local obj: any = { Value = def, Save = save }
 
+        local function set(v: string, noCb: boolean?)
+            box.Text = v
+            obj.Value = v
+            if flag then Config:SetFlag(flag, v, true) end
+            if not noCb and cb then task.spawn(cb, v) end
+        end
+
         box.Focused:Connect(function()
             local st = box:FindFirstChildOfClass("UIStroke") :: UIStroke?
             if st then Utils.Tween(st, { Color = T.Primary }, 0.15) end
@@ -2293,13 +2476,11 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
                 val      = tostring(n)
                 box.Text = val
             end
-            obj.Value = val
-            if flag then Config:SetFlag(flag, val) end
-            if cb then task.spawn(cb, val) end
+            set(val)
         end)
 
         if flag then Config:Register(flag, obj) end
-        function obj:Set(v: string) box.Text = v; obj.Value = v end
+        function obj:Set(v: string) set(v) end
         function obj:Get() return box.Text end
 
         return obj
@@ -2345,7 +2526,10 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local flag: string? = cfg.Flag
         local save: boolean = cfg.Save or false
         local cb: ((Color3) -> ())? = cfg.Callback
-        if flag then Config:SetFlag(flag, def) end
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "Color3" then def = stored end
+        end
 
         local f = card(42)
 
@@ -2380,7 +2564,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             current       = c
             obj.Value     = c
             preview.BackgroundColor3 = c
-            if flag then Config:SetFlag(flag, c) end
+            if flag then Config:SetFlag(flag, c, true) end
             if not noCb and cb then task.spawn(cb, c) end
         end
 
@@ -2407,6 +2591,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             local hueBar = Instance.new("Frame")
             hueBar.BackgroundColor3 = Color3.new(1, 1, 1)
             hueBar.Size   = UDim2.new(1, 0, 0, 18)
+            hueBar.Active = true
             hueBar.Parent = pf
             Utils.Corner(hueBar, R.Small)
             local hg = Instance.new("UIGradient")
@@ -2425,6 +2610,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             satVal.BackgroundColor3 = current
             satVal.Size     = UDim2.new(1, 0, 0, 90)
             satVal.Position = UDim2.fromOffset(0, 26)
+            satVal.Active   = true
             satVal.Parent   = pf
             Utils.Corner(satVal, R.Small)
 
@@ -2453,23 +2639,23 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
             local draggingHue = false
             hueBar.InputBegan:Connect(function(i: InputObject)
-                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                     draggingHue = true
                     pickFromMouse(i, hueBar, true)
                 end
             end)
             satVal.InputBegan:Connect(function(i: InputObject)
-                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                     pickFromMouse(i, satVal, false)
                 end
             end)
-            game:GetService("UserInputService").InputChanged:Connect(function(i: InputObject)
-                if draggingHue and i.UserInputType == Enum.UserInputType.MouseMovement then
+            Utils.Connect(pf, game:GetService("UserInputService").InputChanged, function(i: InputObject)
+                if draggingHue and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
                     pickFromMouse(i, hueBar, true)
                 end
             end)
-            game:GetService("UserInputService").InputEnded:Connect(function(i: InputObject)
-                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            Utils.Connect(pf, game:GetService("UserInputService").InputEnded, function(i: InputObject)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                     draggingHue = false
                 end
             end)
@@ -2541,8 +2727,17 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local hold: boolean = cfg.Hold or false
         local flag: string? = cfg.Flag
         local save: boolean = cfg.Save or false
-        local cb: ((Enum.KeyCode) -> ())? = cfg.Callback
-        if flag then Config:SetFlag(flag, def) end
+        local cb: ((Enum.KeyCode | boolean) -> ())? = cfg.Callback
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "EnumItem" and (stored :: any).EnumType == Enum.KeyCode then
+                def = stored :: Enum.KeyCode
+            elseif typeof(stored) == "string" then
+                local ok, keyCode = pcall(function() return Enum.KeyCode[stored] end)
+                if ok and keyCode then def = keyCode end
+            end
+            Config:SetFlag(flag, def)
+        end
 
         local f = card(42)
 
@@ -2577,21 +2772,21 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             current   = k
             obj.Value = k
             keyBtn.Text = k.Name
-            if flag then Config:SetFlag(flag, k) end
+            if flag then Config:SetFlag(flag, k, true) end
             if cb then task.spawn(cb, k) end
         end
 
         -- Hold mode
         if hold and cb then
-            game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, gp: boolean)
+            Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject, gp: boolean)
                 if gp then return end
                 if input.KeyCode == current then task.spawn(cb, true) end
             end)
-            game:GetService("UserInputService").InputEnded:Connect(function(input: InputObject)
+            Utils.Connect(f, game:GetService("UserInputService").InputEnded, function(input: InputObject)
                 if input.KeyCode == current then task.spawn(cb, false) end
             end)
         elseif cb then
-            game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, gp: boolean)
+            Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject, gp: boolean)
                 if gp then return end
                 if input.KeyCode == current then task.spawn(cb, current) end
             end)
@@ -2603,7 +2798,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             keyBtn.Text      = "..."
             keyBtn.TextColor3 = T.Primary
             local conn: RBXScriptConnection
-            conn = game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, gp: boolean)
+            conn = Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject, gp: boolean)
                 if gp then return end
                 if input.UserInputType == Enum.UserInputType.Keyboard then
                     conn:Disconnect()
@@ -2616,6 +2811,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
                 if listening then
                     listening = false
                     if conn.Connected then conn:Disconnect() end
+                    if not f.Parent then return end
                     keyBtn.Text      = current.Name
                     keyBtn.TextColor3 = T.Text
                 end
@@ -2631,11 +2827,6 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
     Tab.Bind        = Tab.AddBind
     Tab.Keybind     = Tab.AddBind
     Tab.AddKeybind  = Tab.AddBind
-end
-
--- =============================================================================
---  Attach tabs ke Window
--- =============================================================================
 end
 
 return Element
@@ -3058,12 +3249,22 @@ export type WindowConfig = {
     Theme: string?,
     SaveConfig: boolean?,
     ConfigFolder: string?,
+    ConfigFile: string?,
     IntroEnabled: boolean?,
     IntroText: string?,
     CloseCallback: (() -> ())?,
     ToggleKey: Enum.KeyCode?,
     Draggable: boolean?,
 }
+
+local function insetSize(size: UDim2, xInset: number, yInset: number): UDim2
+    return UDim2.new(
+        size.X.Scale,
+        size.X.Offset - xInset,
+        size.Y.Scale,
+        size.Y.Offset - yInset
+    )
+end
 
 -- helper kecil buat bikin wave layer di belakang window
 -- gw taro di dalem file ini aja biar gak kebanyakan require
@@ -3218,7 +3419,7 @@ function Window.new(cfg: WindowConfig): any
     Utils.Stroke(main, T.Border, 1.5, 0.14)
     -- clamp biar gak kegedean / kekecilan di device aneh
     -- html gak ada ini, di html pake max-width / min-width
-    Responsive.AttachConstraints(main)
+    local sizeConstraint, aspectConstraint = Responsive.AttachConstraints(main)
 
     -- wave di belakang, transparan jadi cuma keliatan samar
     Wave.Attach(main, T)
@@ -3316,6 +3517,7 @@ function Window.new(cfg: WindowConfig): any
     titleBar.BackgroundTransparency = 1
     titleBar.Size                   = UDim2.new(1, 0, 0, 52)
     titleBar.Position               = UDim2.fromOffset(0, 3)
+    titleBar.Active                 = true
     titleBar.ZIndex                 = 6
     titleBar.Parent                 = main
 
@@ -3420,6 +3622,22 @@ function Window.new(cfg: WindowConfig): any
     ctrlLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
     ctrlLayout.Parent              = controls
 
+    local navButton = Instance.new("TextButton")
+    navButton.Name             = "NavigationToggle"
+    navButton.BackgroundColor3 = T.SurfaceLight
+    navButton.Position         = UDim2.fromOffset(12, 12)
+    navButton.Size             = UDim2.fromOffset(28, 28)
+    navButton.FontFace         = F.Heading
+    navButton.TextSize         = 16
+    navButton.TextColor3       = T.Text
+    navButton.Text             = "☰"
+    navButton.AutoButtonColor  = false
+    navButton.Visible          = false
+    navButton.ZIndex           = 9
+    navButton.Parent           = titleBar
+    Utils.Corner(navButton, UDim.new(0, 8))
+    Utils.Stroke(navButton, T.Border, 1, 0.5)
+
     local function makeCtrlBtn(text: string, hover: Color3, cb: () -> ()): TextButton
         local b = Instance.new("TextButton")
         b.Name             = text
@@ -3453,6 +3671,7 @@ function Window.new(cfg: WindowConfig): any
     body.BackgroundTransparency = 1
     body.Position               = UDim2.fromOffset(0, 56)
     body.Size                   = UDim2.new(1, 0, 1, -56)
+    body.ClipsDescendants       = true
     body.ZIndex                 = 4
     body.Parent                 = main
 
@@ -3480,22 +3699,16 @@ function Window.new(cfg: WindowConfig): any
     sideList.SortOrder     = Enum.SortOrder.LayoutOrder
     sideList.Parent        = sidebar
 
-    -- collapse sidebar di HP biar gak sempit
-    local isPhone: boolean = Responsive.ShouldCollapseSidebar()
-    local sidebarW: number = if isPhone then 0 else 168
-    local contentX: number = if isPhone then 8 else 176
-    local contentW: number = if isPhone then -16 else -184
-    if isPhone then
-        sidebar.Visible = false -- di HP hidden, nanti bisa di toggle hamburger
-    end
+    local isPhone: boolean = false
+    local drawerOpen: boolean = false
 
     -- content wrapper - glass effect dikit
     local contentWrap = Instance.new("Frame")
     contentWrap.Name                     = "ContentWrap"
     contentWrap.BackgroundColor3         = T.SurfaceLight
     contentWrap.BackgroundTransparency   = 0.08
-    contentWrap.Size                     = UDim2.new(1, contentW, 1, -12)
-    contentWrap.Position                 = UDim2.new(0, contentX, 0, 6)
+    contentWrap.Size                     = UDim2.new(1, -184, 1, -12)
+    contentWrap.Position                 = UDim2.fromOffset(176, 6)
     contentWrap.ZIndex                   = 5
     contentWrap.Parent                   = body
     Utils.Corner(contentWrap, R.Large)
@@ -3538,6 +3751,59 @@ function Window.new(cfg: WindowConfig): any
     contentList.SortOrder     = Enum.SortOrder.LayoutOrder
     contentList.Parent        = contentScroll
 
+    local function setSidebarOpen(open: boolean)
+        if not isPhone then return end
+        drawerOpen = open
+        if open then
+            sidebar.Visible = true
+            Performance.Tween(sidebar, { Position = UDim2.fromOffset(8, 6) }, 0.20)
+        elseif sidebar.Visible then
+            Performance.Tween(sidebar, { Position = UDim2.fromOffset(-176, 6) }, 0.16)
+            task.delay(0.16, function()
+                if isPhone and not drawerOpen and sidebar.Parent then sidebar.Visible = false end
+            end)
+        end
+    end
+
+    local function applyResponsiveLayout(phone: boolean)
+        isPhone = phone
+        navButton.Visible = phone
+        if phone then
+            iconWrap.Position = UDim2.fromOffset(48, 8)
+            titleLabel.Position = UDim2.fromOffset(92, 6)
+            titleLabel.Size = UDim2.new(1, -174, 0, 20)
+            subLabel.Position = UDim2.fromOffset(92, 26)
+            subLabel.Size = UDim2.new(1, -174, 0, 14)
+            sidebar.ZIndex = 10
+            contentWrap.Position = UDim2.fromOffset(8, 6)
+            contentWrap.Size = UDim2.new(1, -16, 1, -12)
+            if drawerOpen then
+                sidebar.Visible = true
+                sidebar.Position = UDim2.fromOffset(8, 6)
+            else
+                sidebar.Visible = false
+                sidebar.Position = UDim2.fromOffset(-176, 6)
+            end
+        else
+            drawerOpen = false
+            iconWrap.Position = UDim2.fromOffset(14, 8)
+            titleLabel.Position = UDim2.fromOffset(58, 6)
+            titleLabel.Size = UDim2.new(1, -140, 0, 20)
+            subLabel.Position = UDim2.fromOffset(58, 26)
+            subLabel.Size = UDim2.new(1, -140, 0, 14)
+            sidebar.ZIndex = 5
+            sidebar.Visible = true
+            sidebar.Position = UDim2.fromOffset(8, 6)
+            contentWrap.Position = UDim2.fromOffset(176, 6)
+            contentWrap.Size = UDim2.new(1, -184, 1, -12)
+        end
+    end
+
+    navButton.MouseButton1Click:Connect(function()
+        setSidebarOpen(not drawerOpen)
+    end)
+    applyResponsiveLayout(Responsive.ShouldCollapseSidebar())
+
     -- anti-lag: debounced canvas
     local pool: any = Performance.NewPool()
     pool:Add(Performance.AutoCanvas(sidebar, sideList, 24))
@@ -3559,14 +3825,23 @@ function Window.new(cfg: WindowConfig): any
     self._visible   = true
     self._winSize   = winSize
     self._closeCb   = cfg.CloseCallback
+    self._constraints = { sizeConstraint, aspectConstraint }
     self._T         = T
     self._R         = R
     self._F         = F
     self._S         = S
+    self._closeSidebar = function()
+        setSidebarOpen(false)
+    end
+
+    Responsive.ObserveViewport(screenGui, function(viewport: Vector2)
+        applyResponsiveLayout(Responsive.ShouldCollapseSidebar(viewport))
+    end)
 
     if cfg.SaveConfig and cfg.ConfigFolder then
         self._configFolder = cfg.ConfigFolder
-        Config:LoadFromFile(cfg.ConfigFolder, "config")
+        self._configFile = cfg.ConfigFile or "config"
+        Config:LoadFromFile(cfg.ConfigFolder, self._configFile)
     end
 
     -- controls
@@ -3574,11 +3849,19 @@ function Window.new(cfg: WindowConfig): any
     makeCtrlBtn("—", T.SurfaceHover, function()
         minimized = not minimized
         if minimized then
+            sizeConstraint.Parent = nil
+            aspectConstraint.Parent = nil
             Performance.Tween(body, { Size = UDim2.new(1, 0, 0, 0) }, 0.22)
-            Performance.Tween(main, { Size = UDim2.fromOffset(winSize.X.Offset, 56) }, 0.22)
+            Performance.Tween(main, { Size = UDim2.new(winSize.X.Scale, winSize.X.Offset, 0, 56) }, 0.22)
         else
             Performance.Tween(body, { Size = UDim2.new(1, 0, 1, -56) }, 0.22)
             Performance.Tween(main, { Size = winSize }, 0.22)
+            task.delay(0.22, function()
+                if not minimized and main.Parent then
+                    sizeConstraint.Parent = main
+                    aspectConstraint.Parent = main
+                end
+            end)
         end
     end)
     makeCtrlBtn("✕", Color3.fromRGB(220, 60, 60), function()
@@ -3600,7 +3883,7 @@ function Window.new(cfg: WindowConfig): any
     end
 
     -- entrance - scale + fade, biar pop
-    main.Size                   = UDim2.fromOffset(winSize.X.Offset - 28, winSize.Y.Offset - 28)
+    main.Size                   = insetSize(winSize, 28, 28)
     main.BackgroundTransparency = 0.2
     -- scale dikit dulu terus balik
     Performance.Tween(main, { Size = winSize }, 0.34, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
@@ -3614,6 +3897,11 @@ function Window:SetTitle(newTitle: string, newSub: string?)
     if newSub then
         (self._subLbl :: TextLabel).Text = newSub
     end
+end
+
+function Window:SaveConfig(): boolean
+    if not self._configFolder then return false end
+    return Config:SaveToFile(self._configFolder, self._configFile or "config")
 end
 
 function Window:SetTheme(name: string)
@@ -3631,21 +3919,19 @@ function Window:SetTheme(name: string)
 end
 
 function Window:Toggle(state: boolean?)
+    if self._destroyed then return end
     local show: boolean = if state == nil then not self._visible else (state :: boolean)
     self._visible = show
     if show then
         (self._gui :: ScreenGui).Enabled = true
         ;(self._main :: Frame).Visible   = true
         Performance.Tween(self._main, { BackgroundTransparency = 0 }, 0.2)
-        ;(self._main :: Frame).Size = UDim2.fromOffset(
-            (self._winSize :: UDim2).X.Offset - 16,
-            (self._winSize :: UDim2).Y.Offset - 16
-        )
+        ;(self._main :: Frame).Size = insetSize(self._winSize :: UDim2, 16, 16)
         Performance.Tween(self._main, { Size = self._winSize }, 0.3, Enum.EasingStyle.Back)
     else
         Performance.Tween(self._main, { BackgroundTransparency = 1 }, 0.18)
         task.delay(0.18, function()
-            if not self._visible then
+            if not self._destroyed and not self._visible then
                 (self._main :: Frame).Visible = false
             end
         end)
@@ -3653,7 +3939,15 @@ function Window:Toggle(state: boolean?)
 end
 
 function Window:Destroy()
+    if self._destroyed then return end
+    self._destroyed = true
+    self:SaveConfig()
     if self._pool then (self._pool :: any):Clear() end
+    if self._constraints then
+        for _, constraint in ipairs(self._constraints :: { Instance }) do
+            constraint:Destroy()
+        end
+    end
     (self._gui :: ScreenGui):Destroy()
 end
 
@@ -4201,6 +4495,7 @@ function TabManager.Attach(window: any)
             page.Visible      = true
             window._activeTab = Tab
             setActive(true)
+            if window._closeSidebar then window._closeSidebar() end
             task.defer(function() contentScroll.CanvasPosition = Vector2.zero end)
         end
 
@@ -4362,6 +4657,7 @@ function Manager.Attach(window: any)
             page.Visible      = true
             window._activeTab = Tab
             setActive(true)
+            if window._closeSidebar then window._closeSidebar() end
             task.defer(function() contentScroll.CanvasPosition = Vector2.zero end)
         end
 
@@ -4402,10 +4698,12 @@ do
     AnimulaUI.Theme   = Theme
     AnimulaUI.Config  = Config
     AnimulaUI.Flags   = Config.Flags
+    local windows: { any } = {}
 
     function AnimulaUI:MakeWindow(cfg)
         local win = WindowMod.new(cfg or {})
         TabManager.Attach(win)
+        table.insert(windows, win)
         return win
     end
     AnimulaUI.CreateWindow = AnimulaUI.MakeWindow
@@ -4416,6 +4714,10 @@ do
     function AnimulaUI:Popup(cfg) return Notification.Popup(cfg) end
     function AnimulaUI:Init() return end
     function AnimulaUI:Destroy()
+        for _, win in ipairs(windows) do
+            if win and win.Destroy then win:Destroy() end
+        end
+        table.clear(windows)
         local ok, hui = pcall(function() return (gethui and gethui()) end)
         local root = nil
         if ok and typeof(hui) == "Instance" then root = hui

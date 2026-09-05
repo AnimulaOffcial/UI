@@ -36,8 +36,17 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local hold: boolean = cfg.Hold or false
         local flag: string? = cfg.Flag
         local save: boolean = cfg.Save or false
-        local cb: ((Enum.KeyCode) -> ())? = cfg.Callback
-        if flag then Config:SetFlag(flag, def) end
+        local cb: ((Enum.KeyCode | boolean) -> ())? = cfg.Callback
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "EnumItem" and (stored :: any).EnumType == Enum.KeyCode then
+                def = stored :: Enum.KeyCode
+            elseif typeof(stored) == "string" then
+                local ok, keyCode = pcall(function() return Enum.KeyCode[stored] end)
+                if ok and keyCode then def = keyCode end
+            end
+            Config:SetFlag(flag, def)
+        end
 
         local f = card(42)
 
@@ -72,21 +81,21 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             current   = k
             obj.Value = k
             keyBtn.Text = k.Name
-            if flag then Config:SetFlag(flag, k) end
+            if flag then Config:SetFlag(flag, k, true) end
             if cb then task.spawn(cb, k) end
         end
 
         -- Hold mode
         if hold and cb then
-            game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, gp: boolean)
+            Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject, gp: boolean)
                 if gp then return end
                 if input.KeyCode == current then task.spawn(cb, true) end
             end)
-            game:GetService("UserInputService").InputEnded:Connect(function(input: InputObject)
+            Utils.Connect(f, game:GetService("UserInputService").InputEnded, function(input: InputObject)
                 if input.KeyCode == current then task.spawn(cb, false) end
             end)
         elseif cb then
-            game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, gp: boolean)
+            Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject, gp: boolean)
                 if gp then return end
                 if input.KeyCode == current then task.spawn(cb, current) end
             end)
@@ -98,7 +107,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             keyBtn.Text      = "..."
             keyBtn.TextColor3 = T.Primary
             local conn: RBXScriptConnection
-            conn = game:GetService("UserInputService").InputBegan:Connect(function(input: InputObject, gp: boolean)
+            conn = Utils.Connect(f, game:GetService("UserInputService").InputBegan, function(input: InputObject, gp: boolean)
                 if gp then return end
                 if input.UserInputType == Enum.UserInputType.Keyboard then
                     conn:Disconnect()
@@ -111,6 +120,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
                 if listening then
                     listening = false
                     if conn.Connected then conn:Disconnect() end
+                    if not f.Parent then return end
                     keyBtn.Text      = current.Name
                     keyBtn.TextColor3 = T.Text
                 end
@@ -126,11 +136,6 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
     Tab.Bind        = Tab.AddBind
     Tab.Keybind     = Tab.AddBind
     Tab.AddKeybind  = Tab.AddBind
-end
-
--- =============================================================================
---  Attach tabs ke Window
--- =============================================================================
 end
 
 return Element

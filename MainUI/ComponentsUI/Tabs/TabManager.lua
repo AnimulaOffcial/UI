@@ -157,6 +157,7 @@ function TabManager.Attach(window: any)
             page.Visible      = true
             window._activeTab = Tab
             setActive(true)
+            if window._closeSidebar then window._closeSidebar() end
             task.defer(function() contentScroll.CanvasPosition = Vector2.zero end)
         end
 

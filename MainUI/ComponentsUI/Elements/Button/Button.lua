@@ -77,7 +77,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
         local function fire()
             if cb then task.spawn(cb) end
-            if flag then Config:SetFlag(flag, true) end
+            if flag then Config:SetFlag(flag, true, true) end
         end
         btn.MouseButton1Click:Connect(fire)
 

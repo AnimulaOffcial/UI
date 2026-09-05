@@ -29,7 +29,10 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
         local flag: string? = cfg.Flag
         local save: boolean = cfg.Save or false
         local cb: ((Color3) -> ())? = cfg.Callback
-        if flag then Config:SetFlag(flag, def) end
+        if flag then
+            local stored = Config:Initialize(flag, def)
+            if typeof(stored) == "Color3" then def = stored end
+        end
 
         local f = card(42)
 
@@ -64,7 +67,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             current       = c
             obj.Value     = c
             preview.BackgroundColor3 = c
-            if flag then Config:SetFlag(flag, c) end
+            if flag then Config:SetFlag(flag, c, true) end
             if not noCb and cb then task.spawn(cb, c) end
         end
 
@@ -91,6 +94,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             local hueBar = Instance.new("Frame")
             hueBar.BackgroundColor3 = Color3.new(1, 1, 1)
             hueBar.Size   = UDim2.new(1, 0, 0, 18)
+            hueBar.Active = true
             hueBar.Parent = pf
             Utils.Corner(hueBar, R.Small)
             local hg = Instance.new("UIGradient")
@@ -109,6 +113,7 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
             satVal.BackgroundColor3 = current
             satVal.Size     = UDim2.new(1, 0, 0, 90)
             satVal.Position = UDim2.fromOffset(0, 26)
+            satVal.Active   = true
             satVal.Parent   = pf
             Utils.Corner(satVal, R.Small)
 
@@ -137,23 +142,23 @@ function Element.Apply(Tab: any, page: Frame, Theme: any, Utils: any, Config: an
 
             local draggingHue = false
             hueBar.InputBegan:Connect(function(i: InputObject)
-                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                     draggingHue = true
                     pickFromMouse(i, hueBar, true)
                 end
             end)
             satVal.InputBegan:Connect(function(i: InputObject)
-                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                     pickFromMouse(i, satVal, false)
                 end
             end)
-            game:GetService("UserInputService").InputChanged:Connect(function(i: InputObject)
-                if draggingHue and i.UserInputType == Enum.UserInputType.MouseMovement then
+            Utils.Connect(pf, game:GetService("UserInputService").InputChanged, function(i: InputObject)
+                if draggingHue and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
                     pickFromMouse(i, hueBar, true)
                 end
             end)
-            game:GetService("UserInputService").InputEnded:Connect(function(i: InputObject)
-                if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            Utils.Connect(pf, game:GetService("UserInputService").InputEnded, function(i: InputObject)
+                if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
                     draggingHue = false
                 end
             end)

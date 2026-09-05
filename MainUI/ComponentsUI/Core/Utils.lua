@@ -131,6 +131,22 @@ function Utils.Tween(
     return tw
 end
 
+-- Disconnect listeners owned by a GUI when that GUI is destroyed. This matters
+-- for UserInputService listeners, which otherwise outlive the window.
+function Utils.Connect(
+    owner: Instance,
+    signal: RBXScriptSignal,
+    callback: (...any) -> ()
+): RBXScriptConnection
+    local connection = signal:Connect(callback)
+    local cleanup: RBXScriptConnection? = nil
+    cleanup = owner.Destroying:Connect(function()
+        if connection.Connected then connection:Disconnect() end
+        if cleanup and cleanup.Connected then cleanup:Disconnect() end
+    end)
+    return connection
+end
+
 -- bikin frame bisa di drag
 -- simple aja, gak perlu ribet
 function Utils.MakeDraggable(dragHandle: GuiObject, target: GuiObject)
@@ -138,7 +154,7 @@ function Utils.MakeDraggable(dragHandle: GuiObject, target: GuiObject)
     local dragStart = Vector2.zero
     local startPos  = target.Position
 
-    dragHandle.InputBegan:Connect(function(input: InputObject)
+    Utils.Connect(target, dragHandle.InputBegan, function(input: InputObject)
         local isMouse = input.UserInputType == Enum.UserInputType.MouseButton1
         local isTouch = input.UserInputType == Enum.UserInputType.Touch
         if isMouse or isTouch then
@@ -153,7 +169,7 @@ function Utils.MakeDraggable(dragHandle: GuiObject, target: GuiObject)
         end
     end)
 
-    UserInputService.InputChanged:Connect(function(input: InputObject)
+    Utils.Connect(target, UserInputService.InputChanged, function(input: InputObject)
         local isMove  = input.UserInputType == Enum.UserInputType.MouseMovement
         local isTouch = input.UserInputType == Enum.UserInputType.Touch
         if dragging and (isMove or isTouch) then
